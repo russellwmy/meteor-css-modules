@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import postcssPlugins from './postcss-plugins';
 import pluginOptionsWrapper from './options';
 import getOutputPath from './get-output-path';
@@ -6,6 +7,7 @@ import camelcase from 'camelcase';
 const postcss = Npm.require('postcss');
 const Parser = Npm.require('css-modules-loader-core/lib/parser');
 const pluginOptions = pluginOptionsWrapper.options;
+const cache = {};
 
 export default class CssModulesProcessor {
 	constructor(root, plugins) {
@@ -73,6 +75,15 @@ export default class CssModulesProcessor {
 	load(sourceString, sourcePath, trace, pathFetcher) {
 		const parser = new Parser(pathFetcher, trace);
 		sourcePath = ImportPathHelpers.getAbsoluteImportPath(sourcePath);
+		// ignore the files are the same
+		let hashValue = crypto.createHash('md5').update(sourceString).digest("hex");
+		if (cache[sourcePath] && cache[sourcePath].hashValue == hashValue){
+			return new Promise((resolve,reject) => {
+				resolve(cache[sourcePath].result);
+			});
+		}
+		cache[sourcePath] = {hashValue};
+
 		return postcss(postcssPlugins.concat([parser.plugin]))
 			.process(sourceString, {
 				from: sourcePath,
@@ -88,7 +99,9 @@ export default class CssModulesProcessor {
 					keys.forEach(key=>transformedTokens[camelcase(key)]=exportTokens[key]);
 					exportTokens = transformedTokens;
 				}
-				return {injectableSource: result.css, exportTokens, sourceMap: result.map.toJSON()};
+				let newResult = {injectableSource: result.css, exportTokens, sourceMap: result.map.toJSON()};
+				cache[sourcePath].result = newResult;
+				return newResult;
 			});
 	}
 
